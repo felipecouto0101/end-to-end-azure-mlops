@@ -7,18 +7,49 @@ on:
     paths:
       - "src/**"
       - "azureml/**"
+      - "tests/**"
   pull_request:
     branches:
       - main
     paths:
       - "src/**"
       - "azureml/**"
+      - "tests/**"
   workflow_dispatch:  # permite disparar manualmente pelo GitHub Actions UI
 
 jobs:
+  # ── Job 1: Testes Automatizados ──────────────────────────────────────────────
+  test:
+    name: Run Automated Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install test dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run unit tests (pytest)
+        run: |
+          pytest tests/test_train.py -v --tb=short
+
+      - name: Run data quality tests (Great Expectations)
+        run: |
+          pytest tests/test_data_quality.py -v --tb=short
+
+  # ── Job 2: Treinamento no Azure ML (só roda se testes passarem) ───────────────
   train:
     name: Submit Training Job to Azure ML
     runs-on: ubuntu-latest
+    needs: test  # bloqueia se o job 'test' falhar
 
     steps:
       - name: Checkout repository
@@ -41,7 +72,6 @@ jobs:
 
       - name: Create Azure ML config.json
         run: |
-          mkdir -p .azureml
           cat <<EOF > config.json
           {
             "subscription_id": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",

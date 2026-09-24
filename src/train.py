@@ -1,11 +1,53 @@
 import argparse
-import os
 import pandas as pd
 import mlflow
 import mlflow.sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, roc_auc_score
+
+COLNAMES = [
+    "Pregnancies",
+    "Glucose",
+    "BloodPressure",
+    "SkinThickness",
+    "Insulin",
+    "BMI",
+    "DiabetesPedigreeFunction",
+    "Age",
+    "Outcome",
+]
+
+
+def load_data(data_path: str) -> pd.DataFrame:
+    """Carrega o dataset CSV e aplica os nomes de colunas."""
+    df = pd.read_csv(data_path, names=COLNAMES)
+    return df
+
+
+def split_data(df: pd.DataFrame):
+    """Divide o dataframe em conjuntos de treino e teste."""
+    X = df.drop("Outcome", axis=1)
+    y = df["Outcome"]
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    return X_train, X_test, y_train, y_test
+
+
+def train_model(X_train: pd.DataFrame, y_train: pd.Series) -> RandomForestClassifier:
+    """Treina e retorna um RandomForestClassifier."""
+    model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
+    model.fit(X_train, y_train)
+    return model
+
+
+def evaluate_model(model: RandomForestClassifier, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
+    """Avalia o modelo e retorna as métricas."""
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    auc = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
+    return {"accuracy": acc, "roc_auc": auc}
 
 
 def main():
@@ -17,40 +59,21 @@ def main():
     mlflow.autolog()
 
     print(f"Carregando dados de: {args.data_path}")
-    colnames = [
-        "Pregnancies",
-        "Glucose",
-        "BloodPressure",
-        "SkinThickness",
-        "Insulin",
-        "BMI",
-        "DiabetesPedigreeFunction",
-        "Age",
-        "Outcome",
-    ]
-    df = pd.read_csv(args.data_path, names=colnames)
+    df = load_data(args.data_path)
 
-    X = df.drop("Outcome", axis=1)
-    y = df["Outcome"]
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+    X_train, X_test, y_train, y_test = split_data(df)
 
     print("Treinando o modelo RandomForestClassifier...")
-    model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-    model.fit(X_train, y_train)
+    model = train_model(X_train, y_train)
 
-    y_pred = model.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    auc = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
+    metrics = evaluate_model(model, X_test, y_test)
 
-    print(f"Acurácia do modelo: {acc:.4f}")
-    print(f"AUC ROC: {auc:.4f}")
+    print(f"Acurácia do modelo: {metrics['accuracy']:.4f}")
+    print(f"AUC ROC: {metrics['roc_auc']:.4f}")
 
     # Métricas explícitas (complementam o autolog)
-    mlflow.log_metric("accuracy", acc)
-    mlflow.log_metric("roc_auc", auc)
+    mlflow.log_metric("accuracy", metrics["accuracy"])
+    mlflow.log_metric("roc_auc", metrics["roc_auc"])
 
     # O autolog() já salva o modelo automaticamente — log_model manual removido
     # para garantir compatibilidade com a versão do Azure ML tracking server.
