@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Testes
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ambientes virtuais
+.env
+.venv
+venv/
+env/
+
+# Azure ML
+config.json
+.azureml/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
