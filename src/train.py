@@ -48,8 +48,12 @@ def main():
     print(f"Acurácia do modelo: {acc:.4f}")
     print(f"AUC ROC: {auc:.4f}")
 
-    # Log do modelo no registro de artefatos
-    mlflow.sklearn.log_model(model, artifact_path="model")
+    # Métricas explícitas (complementam o autolog)
+    mlflow.log_metric("accuracy", acc)
+    mlflow.log_metric("roc_auc", auc)
+
+    # O autolog() já salva o modelo automaticamente — log_model manual removido
+    # para garantir compatibilidade com a versão do Azure ML tracking server.
 
 
 if __name__ == "__main__":
