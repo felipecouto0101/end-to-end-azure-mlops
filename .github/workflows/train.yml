@@ -8,6 +8,7 @@ on:
       - "src/**"
       - "azureml/**"
       - "tests/**"
+      - "requirements-dev.txt"
     tags:
       - "v*"        # ex: v1.0.0 — dispara testes + treinamento no Azure ML
   pull_request:
@@ -17,6 +18,7 @@ on:
       - "src/**"
       - "azureml/**"
       - "tests/**"
+      - "requirements-dev.txt"
   workflow_dispatch:
 
 jobs:
