@@ -1,7 +1,7 @@
 """
 Testes unitários para src/train.py usando pytest.
 Executar com: pytest tests/test_train.py -v
-Cobertura: load_data, split_data, train_model, evaluate_model
+Cobertura: load_data, split_data, train_model, evaluate_model (27 testes no total)
 """
 import sys
 import os
