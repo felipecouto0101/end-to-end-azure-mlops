@@ -195,8 +195,4 @@ Acesse a aba **Jobs** no [Azure Machine Learning Studio](https://ml.azure.com) p
 - [x] **Testes Automatizados:** Validação do código e dos dados antes de qualquer treinamento
 - [x] **Model Registry:** Modelo versionado e registado automaticamente no Azure ML após cada release
 
----
 
-## ✒️ Autor
-
-Desenvolvido por **Felipe Couto** para fins de aprendizado e consolidação de conhecimentos na plataforma Microsoft Azure ML.
