@@ -95,12 +95,31 @@ if __name__ == "__main__":
         ).mlflow_tracking_uri
         mlflow_client = MlflowClient(tracking_uri=tracking_uri)
 
-        # o run_id MLflow está nas properties do job
-        run_id = completed_job.properties.get("mlflow.rootRunId") or returned_job.name
-        print(f"  MLflow run_id: {run_id}")
-        run = mlflow_client.get_run(run_id)
-        metrics = run.data.metrics
-        print(f"  Métricas encontradas: {list(metrics.keys())}")
+        # procura o run pelo job name nas tags do experimento
+        experiment = mlflow_client.get_experiment_by_name("exp-sdk-diabetes")
+        runs = mlflow_client.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string=f"tags.mlflow.parentRunId = '{returned_job.name}' OR tags.azureml.jobName = '{returned_job.name}'",
+            max_results=1,
+        )
+
+        if not runs:
+            # fallback: pegar o run mais recente do experimento
+            runs = mlflow_client.search_runs(
+                experiment_ids=[experiment.experiment_id],
+                order_by=["start_time DESC"],
+                max_results=1,
+            )
+
+        if runs:
+            run = runs[0]
+            metrics = run.data.metrics
+            print(f"  Run ID: {run.info.run_id}")
+            print(f"  Métricas encontradas: {list(metrics.keys())}")
+        else:
+            metrics = {}
+            print("  Nenhum run encontrado no experimento.")
+
     except Exception as e:
         print(f"Erro ao ler métricas: {e}")
         metrics = {}
