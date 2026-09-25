@@ -89,12 +89,21 @@ if __name__ == "__main__":
 
     # 6. Ler métricas do job via MLflow
     print("\nLendo métricas do job...")
-    mlflow_client = MlflowClient(
-        tracking_uri=ml_client.workspaces.get(ml_client.workspace_name).mlflow_tracking_uri
-    )
+    try:
+        tracking_uri = ml_client.workspaces.get(
+            ml_client.workspace_name
+        ).mlflow_tracking_uri
+        mlflow_client = MlflowClient(tracking_uri=tracking_uri)
 
-    run = mlflow_client.get_run(returned_job.name)
-    metrics = run.data.metrics
+        # o run_id MLflow está nas properties do job
+        run_id = completed_job.properties.get("mlflow.rootRunId") or returned_job.name
+        print(f"  MLflow run_id: {run_id}")
+        run = mlflow_client.get_run(run_id)
+        metrics = run.data.metrics
+        print(f"  Métricas encontradas: {list(metrics.keys())}")
+    except Exception as e:
+        print(f"Erro ao ler métricas: {e}")
+        metrics = {}
 
     roc_auc  = metrics.get("roc_auc")
     accuracy = metrics.get("accuracy")
