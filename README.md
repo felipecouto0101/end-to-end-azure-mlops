@@ -41,7 +41,8 @@ git push / PR
      ▼
 Job 1: test
      ├── pytest tests/test_train.py        (14 testes unitários)
-     └── pytest tests/test_data_quality.py (13 validações de dados)
+     ├── pytest tests/test_data_quality.py (13 validações de dados)
+     └── pytest tests/test_quality_gate.py (11 testes do gate de qualidade)
           │
           ├── falhou? → pipeline bloqueado, treinamento não roda
           └── passou? ↓
@@ -51,6 +52,10 @@ Job 2: train  (só dispara com tag v*)
      ├── python azureml/run_pipeline.py
      │        ├── submete job ao cluster-diabetes
      │        ├── aguarda conclusão
+     │        ├── lê métricas via MLflow
+     │        ├── gate de qualidade (AUC ROC >= 0.82 e Acurácia >= 0.74)
+     │        │        ├── reprovado? → pipeline falha, modelo não registado
+     │        │        └── aprovado? ↓
      │        └── registra modelo no Azure ML Model Registry
      └── modelo versionado disponível no Azure ML Studio
 ```
@@ -101,7 +106,8 @@ end-to-end-azure-mlops/
 │   └── train.py               # Script de treinamento modular (RandomForest + MLflow)
 ├── tests/
 │   ├── test_train.py          # Testes unitários das funções de treino (pytest)
-│   └── test_data_quality.py   # Validações do dataset (Great Expectations)
+│   ├── test_data_quality.py   # Validações do dataset (Great Expectations)
+│   └── test_quality_gate.py   # Testes do gate de qualidade (aprovação/reprovação do modelo)
 ├── requirements-dev.txt       # Dependências de teste
 └── README.md
 ```
@@ -140,6 +146,20 @@ Valida o dataset antes do treinamento com 13 regras:
 ```bash
 pytest tests/test_data_quality.py -v
 # 13 passed
+```
+
+### Gate de Qualidade — `evaluate_quality_gate`
+
+Bloqueia o registo do modelo no Azure ML se as métricas não atingirem os limiares mínimos:
+
+| Métrica | Limiar | Justificativa |
+|---|---|---|
+| AUC ROC | `>= 0.82` | Métrica principal — dataset desbalanceado (65%/35%) |
+| Acurácia | `>= 0.74` | Significativamente acima do baseline (65%) |
+
+```bash
+pytest tests/test_quality_gate.py -v
+# 11 passed
 ```
 
 ---
@@ -192,7 +212,7 @@ Acesse a aba **Jobs** no [Azure Machine Learning Studio](https://ml.azure.com) p
 - [x] **Rastreabilidade:** Commits do Git vinculados automaticamente às execuções no Azure ML
 - [x] **Gestão de Custos:** Cluster com auto-scale (escala para 0 nós quando ocioso); treinamento só dispara em tags, não em todo push
 - [x] **Logging Automático:** MLflow `autolog` registra hiperparâmetros, métricas e artefatos
-- [x] **Testes Automatizados:** Validação do código e dos dados antes de qualquer treinamento
-- [x] **Model Registry:** Modelo versionado e registado automaticamente no Azure ML após cada release
+- [x] **Testes Automatizados:** Validação do código, dos dados e do gate de qualidade antes de qualquer treinamento
+- [x] **Model Registry:** Modelo versionado e registado automaticamente no Azure ML após cada release, desde que passe no gate de qualidade (AUC ROC >= 0.82, Acurácia >= 0.74)
 
 
