@@ -69,9 +69,16 @@ if __name__ == "__main__":
     returned_job = ml_client.jobs.create_or_update(job)
     print(f"Job enviado! Acompanhe em:\n{returned_job.studio_url}")
 
-    # 5. Aguardar conclusão do Job
+    # 5. Aguardar conclusão do Job (polling — evita problemas de streaming no CI)
     print("Aguardando conclusão do job...")
-    ml_client.jobs.stream(returned_job.name)
+    import time
+    while True:
+        current_job = ml_client.jobs.get(returned_job.name)
+        status = current_job.status
+        print(f"  Status: {status}")
+        if status in ("Completed", "Failed", "Canceled", "NotResponding"):
+            break
+        time.sleep(30)
 
     completed_job = ml_client.jobs.get(returned_job.name)
     print(f"Status final do job: {completed_job.status}")
