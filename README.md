@@ -28,6 +28,7 @@ O objetivo é construir um modelo preditivo para identificar a probabilidade de 
 | CI/CD | GitHub Actions |
 | Testes unitários | pytest |
 | Qualidade de dados | Great Expectations 1.x |
+| Batch Endpoint | Azure ML Batch Endpoint (IaC via SDK v2) |
 
 ---
 
@@ -56,8 +57,9 @@ Job 2: train  (só dispara com tag v*)
      │        ├── gate de qualidade (AUC ROC >= 0.82 e Acurácia >= 0.74)
      │        │        ├── reprovado? → pipeline falha, modelo não registado
      │        │        └── aprovado? ↓
-     │        └── registra modelo no Azure ML Model Registry
-     └── modelo versionado disponível no Azure ML Studio
+     │        ├── registra modelo no Azure ML Model Registry
+     │        └── cria/atualiza Batch Endpoint (IaC idempotente)
+     └── modelo versionado + endpoint disponível no Azure ML Studio
 ```
 
 ### Como disparar o treinamento
@@ -100,14 +102,16 @@ end-to-end-azure-mlops/
 │   └── workflows/
 │       └── train.yml          # CI/CD: testes + treinamento no Azure ML
 ├── azureml/
-│   ├── conda.yml              # Dependências do ambiente Python no cluster
-│   └── run_pipeline.py        # Orquestrador: submete job e registra modelo via SDK v2
+│   ├── conda.yml                    # Dependências do ambiente Python no cluster
+│   ├── run_pipeline.py              # Orquestrador: submete job, regista modelo e actualiza endpoint
+│   └── create_batch_endpoint.py    # IaC: cria/actualiza Batch Endpoint via SDK v2
 ├── src/
 │   └── train.py               # Script de treinamento modular (RandomForest + MLflow)
 ├── tests/
 │   ├── test_train.py          # Testes unitários das funções de treino (pytest)
 │   ├── test_data_quality.py   # Validações do dataset (Great Expectations)
-│   └── test_quality_gate.py   # Testes do gate de qualidade (aprovação/reprovação do modelo)
+│   ├── test_quality_gate.py   # Testes do gate de qualidade (aprovação/reprovação do modelo)
+│   └── test_batch_endpoint.py # Testes do Batch Endpoint (mocks, sem conexão Azure)
 ├── requirements-dev.txt       # Dependências de teste
 └── README.md
 ```
@@ -162,6 +166,21 @@ pytest tests/test_quality_gate.py -v
 # 11 passed
 ```
 
+### Batch Endpoint — `create_batch_endpoint`
+
+Testa a lógica de criação e atualização do endpoint com mocks, sem qualquer conexão real ao Azure:
+
+| Função | O que é testado |
+|---|---|
+| `get_latest_model_version()` | versão mais recente, versão única, ordem aleatória, erro sem modelos |
+| `endpoint_exists()` | retorna True/False, chamada com nome correto |
+| Constantes | nomes do endpoint, deployment, modelo e cluster |
+
+```bash
+pytest tests/test_batch_endpoint.py -v
+# 12 passed
+```
+
 ---
 
 ## 💻 Como Executar Localmente
@@ -205,14 +224,59 @@ Acesse a aba **Jobs** no [Azure Machine Learning Studio](https://ml.azure.com) p
 
 ---
 
-## 📊 Boas Práticas de MLOps Aplicadas
+## � Batch Endpoint — Processamento em Larga Escala
+
+O Batch Endpoint permite processar grandes volumes de dados de forma assíncrona, **sem custo de compute em standby** — o cluster só é provisionado durante a execução.
+
+### Arquitectura
+
+```
+BatchEndpoint "diabetes-batch-endpoint"  (URL permanente — criado uma vez)
+     └── BatchDeployment "diabetes-batch-dp"  (actualizado a cada release)
+              ├── modelo   → diabetes-rf-model @ versão mais recente
+              ├── compute  → cluster-diabetes (min_instances=0)
+              └── output   → predictions.csv
+```
+
+### Lógica IaC (idempotente)
+
+O script `azureml/create_batch_endpoint.py` é executado automaticamente após cada registo de modelo:
+
+```
+Endpoint existe?
+    NÃO → cria endpoint + cria deployment
+    SIM → só actualiza o deployment com a versão mais recente
+```
+
+### Como invocar manualmente
+
+```python
+from azure.ai.ml import MLClient, Input
+from azure.identity import DefaultAzureCredential
+
+ml_client = MLClient.from_config(credential=DefaultAzureCredential())
+
+job = ml_client.batch_endpoints.invoke(
+    endpoint_name="diabetes-batch-endpoint",
+    input=Input(
+        type="uri_file",
+        path="https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv"
+    )
+)
+print(f"Batch job submetido: {job.name}")
+```
+
+---
+
+## �📊 Boas Práticas de MLOps Aplicadas
 
 - [x] **Infraestrutura como Código:** Computação gerenciada e sob demanda via SDK v2
 - [x] **Reprodutibilidade:** Ambientes isolados via containers Conda/Docker versionados
 - [x] **Rastreabilidade:** Commits do Git vinculados automaticamente às execuções no Azure ML
 - [x] **Gestão de Custos:** Cluster com auto-scale (escala para 0 nós quando ocioso); treinamento só dispara em tags, não em todo push
 - [x] **Logging Automático:** MLflow `autolog` registra hiperparâmetros, métricas e artefatos
-- [x] **Testes Automatizados:** Validação do código, dos dados e do gate de qualidade antes de qualquer treinamento
+- [x] **Testes Automatizados:** Validação do código, dos dados, gate de qualidade e Batch Endpoint (50 testes no total)
 - [x] **Model Registry:** Modelo versionado e registado automaticamente no Azure ML após cada release, desde que passe no gate de qualidade (AUC ROC >= 0.82, Acurácia >= 0.74)
+- [x] **Batch Endpoint:** Processamento em larga escala sob demanda, criado via IaC e actualizado automaticamente a cada nova versão do modelo
 
 

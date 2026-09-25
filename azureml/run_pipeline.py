@@ -135,3 +135,9 @@ if __name__ == "__main__":
     print(f"  Versão  : {registered_model.version}")
     print(f"  AUC ROC : {roc_auc:.4f}")
     print(f"  Acurácia: {accuracy:.4f}")
+
+    # 9. Criar ou atualizar o Batch Endpoint com a versão mais recente
+    print("\n" + "="*50)
+    print("Atualizando Batch Endpoint...")
+    from create_batch_endpoint import create_or_update_batch_endpoint
+    create_or_update_batch_endpoint(ml_client)
