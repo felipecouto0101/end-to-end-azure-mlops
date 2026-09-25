@@ -106,9 +106,13 @@ def create_or_update_batch_endpoint(ml_client) -> str:
     ml_client.batch_deployments.begin_create_or_update(deployment).result()
 
     # 5. Definir como deployment padrão do endpoint
-    endpoint = ml_client.batch_endpoints.get(ENDPOINT_NAME)
-    endpoint.defaults.deployment_name = DEPLOYMENT_NAME
-    ml_client.batch_endpoints.begin_create_or_update(endpoint).result()
+    try:
+        endpoint = ml_client.batch_endpoints.get(ENDPOINT_NAME)
+        endpoint.defaults.deployment_name = DEPLOYMENT_NAME
+        ml_client.batch_endpoints.begin_create_or_update(endpoint).result()
+    except Exception as e:
+        print(f"Aviso: não foi possível definir deployment padrão: {e}")
+        print("O deployment foi criado mas pode não estar definido como padrão.")
 
     # 6. Obter URI do endpoint
     endpoint = ml_client.batch_endpoints.get(ENDPOINT_NAME)
