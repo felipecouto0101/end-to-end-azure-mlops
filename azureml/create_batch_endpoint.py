@@ -44,8 +44,11 @@ def create_or_update_batch_endpoint(ml_client) -> str:
     """
     from azure.ai.ml.entities import (
         BatchEndpoint,
-        BatchDeployment,
+        ModelBatchDeployment,
+        ModelBatchDeploymentSettings,
         BatchRetrySettings,
+        CodeConfiguration,
+        Environment,
     )
     from azure.ai.ml.constants import BatchDeploymentOutputAction
 
@@ -67,18 +70,32 @@ def create_or_update_batch_endpoint(ml_client) -> str:
     else:
         print(f"Endpoint '{ENDPOINT_NAME}' já existe. Atualizando deployment...")
 
-    # 3. Criar ou atualizar o deployment com a versão mais recente
-    deployment = BatchDeployment(
+    # 3. Ambiente para o deployment
+    batch_env = Environment(
+        name="diabetes-batch-env",
+        conda_file="azureml/conda.yml",
+        image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest",
+    )
+
+    # 4. Criar ou atualizar o deployment com ModelBatchDeployment
+    deployment = ModelBatchDeployment(
         name=DEPLOYMENT_NAME,
         endpoint_name=ENDPOINT_NAME,
         model=model_id,
         compute=COMPUTE_NAME,
-        instance_count=1,
-        max_concurrency_per_instance=2,
-        mini_batch_size=10,
-        output_action=BatchDeploymentOutputAction.APPEND_ROW,
-        output_file_name="predictions.csv",
-        retry_settings=BatchRetrySettings(max_retries=3, timeout=300),
+        code_configuration=CodeConfiguration(
+            code="./src",
+            scoring_script="batch_driver.py",
+        ),
+        environment=batch_env,
+        settings=ModelBatchDeploymentSettings(
+            instance_count=1,
+            max_concurrency_per_instance=2,
+            mini_batch_size=10,
+            output_action=BatchDeploymentOutputAction.APPEND_ROW,
+            output_file_name="predictions.csv",
+            retry_settings=BatchRetrySettings(max_retries=3, timeout=300),
+        ),
         tags={
             "model_version": model_version,
             "model_name": MODEL_NAME,
@@ -88,12 +105,12 @@ def create_or_update_batch_endpoint(ml_client) -> str:
     print(f"Criando/atualizando deployment '{DEPLOYMENT_NAME}'...")
     ml_client.batch_deployments.begin_create_or_update(deployment).result()
 
-    # 4. Definir como deployment padrão do endpoint
+    # 5. Definir como deployment padrão do endpoint
     endpoint = ml_client.batch_endpoints.get(ENDPOINT_NAME)
     endpoint.defaults.deployment_name = DEPLOYMENT_NAME
     ml_client.batch_endpoints.begin_create_or_update(endpoint).result()
 
-    # 5. Obter URI do endpoint
+    # 6. Obter URI do endpoint
     endpoint = ml_client.batch_endpoints.get(ENDPOINT_NAME)
     scoring_uri = endpoint.scoring_uri
 
