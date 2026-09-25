@@ -1,4 +1,6 @@
 import argparse
+import json
+import os
 import pandas as pd
 import mlflow
 import mlflow.sklearn
@@ -53,6 +55,7 @@ def evaluate_model(model: RandomForestClassifier, X_test: pd.DataFrame, y_test: 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, help="Caminho do recurso de dados")
+    parser.add_argument("--output_dir", type=str, default="./outputs", help="Diretório para métricas")
     args = parser.parse_args()
 
     # Iniciar rastreamento automático do MLflow no Azure ML
@@ -71,12 +74,16 @@ def main():
     print(f"Acurácia do modelo: {metrics['accuracy']:.4f}")
     print(f"AUC ROC: {metrics['roc_auc']:.4f}")
 
-    # Métricas explícitas (complementam o autolog)
+    # Métricas explícitas via MLflow
     mlflow.log_metric("accuracy", metrics["accuracy"])
     mlflow.log_metric("roc_auc", metrics["roc_auc"])
 
-    # O autolog() já salva o modelo automaticamente — log_model manual removido
-    # para garantir compatibilidade com a versão do Azure ML tracking server.
+    # Gravar métricas em ficheiro JSON para leitura fiável pelo run_pipeline.py
+    os.makedirs(args.output_dir, exist_ok=True)
+    metrics_path = os.path.join(args.output_dir, "metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump(metrics, f)
+    print(f"Métricas guardadas em: {metrics_path}")
 
 
 if __name__ == "__main__":

@@ -29,11 +29,13 @@ def evaluate_quality_gate(
 
 
 if __name__ == "__main__":
-    from azure.ai.ml import MLClient, command, Input
+    from azure.ai.ml import MLClient, command, Input, Output
     from azure.ai.ml.entities import Environment, Model
     from azure.ai.ml.constants import AssetTypes
     from azure.identity import DefaultAzureCredential
+    from azure.ai.ml.exceptions import JobException
     from mlflow.tracking import MlflowClient
+    import os
 
     # 1. Autenticação no Workspace do Azure ML
     ml_client = MLClient.from_config(credential=DefaultAzureCredential())
@@ -51,12 +53,15 @@ if __name__ == "__main__":
     # 3. Definição do Job de Treinamento
     job = command(
         code="./src",
-        command="python train.py --data_path ${{inputs.diabetes_data}}",
+        command="python train.py --data_path ${{inputs.diabetes_data}} --output_dir ${{outputs.metrics_dir}}",
         inputs={
             "diabetes_data": Input(
                 type="uri_file",
                 path="https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv",
             )
+        },
+        outputs={
+            "metrics_dir": Output(type="uri_folder"),
         },
         environment=custom_env,
         compute="cluster-diabetes",
@@ -87,42 +92,47 @@ if __name__ == "__main__":
         print(f"Job encerrou com status '{completed_job.status}'. Abortando.")
         sys.exit(1)
 
-    # 6. Ler métricas do job via MLflow
+    # 6. Ler métricas do ficheiro JSON gerado pelo train.py
     print("\nLendo métricas do job...")
+    import tempfile, json
+    metrics = {}
     try:
-        tracking_uri = ml_client.workspaces.get(
-            ml_client.workspace_name
-        ).mlflow_tracking_uri
-        mlflow_client = MlflowClient(tracking_uri=tracking_uri)
-
-        # procura o run pelo job name nas tags do experimento
-        experiment = mlflow_client.get_experiment_by_name("exp-sdk-diabetes")
-        runs = mlflow_client.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            filter_string=f"tags.mlflow.parentRunId = '{returned_job.name}' OR tags.azureml.jobName = '{returned_job.name}'",
-            max_results=1,
-        )
-
-        if not runs:
-            # fallback: pegar o run mais recente do experimento
-            runs = mlflow_client.search_runs(
-                experiment_ids=[experiment.experiment_id],
-                order_by=["start_time DESC"],
-                max_results=1,
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ml_client.jobs.download(
+                name=returned_job.name,
+                output_name="metrics_dir",
+                download_path=tmp_dir,
             )
-
-        if runs:
-            run = runs[0]
-            metrics = run.data.metrics
-            print(f"  Run ID: {run.info.run_id}")
-            print(f"  Métricas encontradas: {list(metrics.keys())}")
-        else:
-            metrics = {}
-            print("  Nenhum run encontrado no experimento.")
-
+            metrics_file = os.path.join(tmp_dir, "named-outputs", "metrics_dir", "metrics.json")
+            with open(metrics_file) as f:
+                metrics = json.load(f)
+            print(f"  Métricas: {metrics}")
     except Exception as e:
-        print(f"Erro ao ler métricas: {e}")
-        metrics = {}
+        print(f"Erro ao ler metrics.json: {e}")
+        # fallback: tentar via MLflow search_runs
+        try:
+            tracking_uri = ml_client.workspaces.get(
+                ml_client.workspace_name
+            ).mlflow_tracking_uri
+            mlflow_client = MlflowClient(tracking_uri=tracking_uri)
+            experiment = mlflow_client.get_experiment_by_name("exp-sdk-diabetes")
+            if experiment:
+                runs = mlflow_client.search_runs(
+                    experiment_ids=[experiment.experiment_id],
+                    filter_string=f"tags.azureml.jobName = '{returned_job.name}'",
+                    max_results=1,
+                )
+                if not runs:
+                    runs = mlflow_client.search_runs(
+                        experiment_ids=[experiment.experiment_id],
+                        order_by=["start_time DESC"],
+                        max_results=1,
+                    )
+                if runs:
+                    metrics = runs[0].data.metrics
+                    print(f"  Métricas via MLflow: {list(metrics.keys())}")
+        except Exception as e2:
+            print(f"Fallback MLflow também falhou: {e2}")
 
     roc_auc  = metrics.get("roc_auc")
     accuracy = metrics.get("accuracy")
