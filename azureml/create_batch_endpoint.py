@@ -77,7 +77,20 @@ def create_or_update_batch_endpoint(ml_client) -> str:
         image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest",
     )
 
-    # 4. Criar ou atualizar o deployment com ModelBatchDeployment
+    # 4. Aguardar que o endpoint esteja em estado Succeeded antes do deployment
+    import time
+    print("Aguardando endpoint ficar disponível...")
+    for _ in range(20):
+        ep = ml_client.batch_endpoints.get(ENDPOINT_NAME)
+        state = getattr(ep, "provisioning_state", "Unknown")
+        print(f"  Endpoint state: {state}")
+        if state == "Succeeded":
+            break
+        time.sleep(30)
+    else:
+        raise RuntimeError(f"Endpoint '{ENDPOINT_NAME}' não ficou disponível a tempo.")
+
+    # 5. Criar ou atualizar o deployment com ModelBatchDeployment
     deployment = ModelBatchDeployment(
         name=DEPLOYMENT_NAME,
         endpoint_name=ENDPOINT_NAME,
