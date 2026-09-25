@@ -1,118 +1,137 @@
 import sys
-from azure.ai.ml import MLClient, command, Input
-from azure.ai.ml.entities import Environment, Model
-from azure.ai.ml.constants import AssetTypes
-from azure.identity import DefaultAzureCredential
 
 # ── Limiares de qualidade para promoção do modelo ─────────────────────────────
 MIN_AUC_ROC  = 0.82   # métrica principal — dataset desbalanceado
 MIN_ACCURACY = 0.74   # métrica secundária
 
-# 1. Autenticação no Workspace do Azure ML
-ml_client = MLClient.from_config(credential=DefaultAzureCredential())
-print(f"Conectado com sucesso ao Workspace: {ml_client.workspace_name}")
 
-# 2. Definição do Ambiente
-custom_env = Environment(
-    name="diabetes-ml-env",
-    description="Ambiente para treinamento do modelo de diabetes",
-    tags={"scikit-learn": "1.3.0"},
-    conda_file="azureml/conda.yml",
-    image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest",
-)
+def evaluate_quality_gate(
+    accuracy: float,
+    roc_auc: float,
+    min_accuracy: float = MIN_ACCURACY,
+    min_auc_roc: float = MIN_AUC_ROC,
+) -> tuple:
+    """
+    Verifica se as métricas do modelo atingem os limiares mínimos.
 
-# 3. Definição do Job de Treinamento
-job = command(
-    code="./src",
-    command="python train.py --data_path ${{inputs.diabetes_data}}",
-    inputs={
-        "diabetes_data": Input(
-            type="uri_file",
-            path="https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv",
-        )
-    },
-    environment=custom_env,
-    compute="cluster-diabetes",
-    experiment_name="exp-sdk-diabetes",
-    display_name="treinamento-sdk-v2",
-)
+    Retorna:
+        (passed, reasons) — passed=True se aprovado, reasons lista os motivos de reprovação.
+    """
+    reasons = []
 
-# 4. Submeter o Job
-print("Enviando o Job de Treinamento para o Azure ML...")
-returned_job = ml_client.jobs.create_or_update(job)
-print(f"Job enviado! Acompanhe em:\n{returned_job.studio_url}")
+    if roc_auc < min_auc_roc:
+        reasons.append(f"AUC ROC {roc_auc:.4f} abaixo do limiar {min_auc_roc}")
 
-# 5. Aguardar conclusão do Job
-print("Aguardando conclusão do job...")
-ml_client.jobs.stream(returned_job.name)
+    if accuracy < min_accuracy:
+        reasons.append(f"Acurácia {accuracy:.4f} abaixo do limiar {min_accuracy}")
 
-completed_job = ml_client.jobs.get(returned_job.name)
-print(f"Status final do job: {completed_job.status}")
+    return len(reasons) == 0, reasons
 
-if completed_job.status != "Completed":
-    print(f"Job encerrou com status '{completed_job.status}'. Abortando.")
-    sys.exit(1)
 
-# 6. Ler métricas do job via MLflow
-print("\nLendo métricas do job...")
-from mlflow.tracking import MlflowClient
+if __name__ == "__main__":
+    from azure.ai.ml import MLClient, command, Input
+    from azure.ai.ml.entities import Environment, Model
+    from azure.ai.ml.constants import AssetTypes
+    from azure.identity import DefaultAzureCredential
+    from mlflow.tracking import MlflowClient
 
-mlflow_client = MlflowClient(
-    tracking_uri=ml_client.workspaces.get(ml_client.workspace_name).mlflow_tracking_uri
-)
+    # 1. Autenticação no Workspace do Azure ML
+    ml_client = MLClient.from_config(credential=DefaultAzureCredential())
+    print(f"Conectado com sucesso ao Workspace: {ml_client.workspace_name}")
 
-run = mlflow_client.get_run(returned_job.name)
-metrics = run.data.metrics
+    # 2. Definição do Ambiente
+    custom_env = Environment(
+        name="diabetes-ml-env",
+        description="Ambiente para treinamento do modelo de diabetes",
+        tags={"scikit-learn": "1.3.0"},
+        conda_file="azureml/conda.yml",
+        image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest",
+    )
 
-roc_auc  = metrics.get("roc_auc")
-accuracy = metrics.get("accuracy")
+    # 3. Definição do Job de Treinamento
+    job = command(
+        code="./src",
+        command="python train.py --data_path ${{inputs.diabetes_data}}",
+        inputs={
+            "diabetes_data": Input(
+                type="uri_file",
+                path="https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv",
+            )
+        },
+        environment=custom_env,
+        compute="cluster-diabetes",
+        experiment_name="exp-sdk-diabetes",
+        display_name="treinamento-sdk-v2",
+    )
 
-if roc_auc is None or accuracy is None:
-    print("ERRO: Métricas 'roc_auc' ou 'accuracy' não encontradas no run MLflow.")
-    sys.exit(1)
+    # 4. Submeter o Job
+    print("Enviando o Job de Treinamento para o Azure ML...")
+    returned_job = ml_client.jobs.create_or_update(job)
+    print(f"Job enviado! Acompanhe em:\n{returned_job.studio_url}")
 
-print(f"\n{'='*50}")
-print(f"  Acurácia : {accuracy:.4f}  (mínimo: {MIN_ACCURACY})")
-print(f"  AUC ROC  : {roc_auc:.4f}  (mínimo: {MIN_AUC_ROC})")
-print(f"{'='*50}")
+    # 5. Aguardar conclusão do Job
+    print("Aguardando conclusão do job...")
+    ml_client.jobs.stream(returned_job.name)
 
-# 7. Gate de qualidade — só promove se ambas as métricas passarem
-passed = True
+    completed_job = ml_client.jobs.get(returned_job.name)
+    print(f"Status final do job: {completed_job.status}")
 
-if roc_auc < MIN_AUC_ROC:
-    print(f"REPROVADO: AUC ROC {roc_auc:.4f} abaixo do limiar {MIN_AUC_ROC}")
-    passed = False
+    if completed_job.status != "Completed":
+        print(f"Job encerrou com status '{completed_job.status}'. Abortando.")
+        sys.exit(1)
 
-if accuracy < MIN_ACCURACY:
-    print(f"REPROVADO: Acurácia {accuracy:.4f} abaixo do limiar {MIN_ACCURACY}")
-    passed = False
+    # 6. Ler métricas do job via MLflow
+    print("\nLendo métricas do job...")
+    mlflow_client = MlflowClient(
+        tracking_uri=ml_client.workspaces.get(ml_client.workspace_name).mlflow_tracking_uri
+    )
 
-if not passed:
-    print("\nModelo não registrado. Melhore o modelo antes de promover.")
-    sys.exit(1)
+    run = mlflow_client.get_run(returned_job.name)
+    metrics = run.data.metrics
 
-print("\nModelo APROVADO. Registrando no Azure ML Model Registry...")
+    roc_auc  = metrics.get("roc_auc")
+    accuracy = metrics.get("accuracy")
 
-# 8. Registrar o modelo
-model = Model(
-    path=f"azureml://jobs/{returned_job.name}/outputs/artifacts/paths/model/",
-    name="diabetes-rf-model",
-    description="RandomForestClassifier treinado no dataset Pima Indians Diabetes",
-    type=AssetTypes.MLFLOW_MODEL,
-    tags={
-        "framework": "scikit-learn",
-        "algorithm": "RandomForestClassifier",
-        "experiment": "exp-sdk-diabetes",
-        "job_name": returned_job.name,
-        "accuracy": str(round(accuracy, 4)),
-        "roc_auc": str(round(roc_auc, 4)),
-    },
-)
+    if roc_auc is None or accuracy is None:
+        print("ERRO: Métricas 'roc_auc' ou 'accuracy' não encontradas no run MLflow.")
+        sys.exit(1)
 
-registered_model = ml_client.models.create_or_update(model)
+    print(f"\n{'='*50}")
+    print(f"  Acurácia : {accuracy:.4f}  (mínimo: {MIN_ACCURACY})")
+    print(f"  AUC ROC  : {roc_auc:.4f}  (mínimo: {MIN_AUC_ROC})")
+    print(f"{'='*50}")
 
-print(f"\nModelo registrado com sucesso!")
-print(f"  Nome    : {registered_model.name}")
-print(f"  Versão  : {registered_model.version}")
-print(f"  AUC ROC : {roc_auc:.4f}")
-print(f"  Acurácia: {accuracy:.4f}")
+    # 7. Gate de qualidade
+    passed, reasons = evaluate_quality_gate(accuracy, roc_auc)
+
+    if not passed:
+        for reason in reasons:
+            print(f"REPROVADO: {reason}")
+        print("\nModelo não registrado. Melhore o modelo antes de promover.")
+        sys.exit(1)
+
+    print("\nModelo APROVADO. Registrando no Azure ML Model Registry...")
+
+    # 8. Registrar o modelo
+    model = Model(
+        path=f"azureml://jobs/{returned_job.name}/outputs/artifacts/paths/model/",
+        name="diabetes-rf-model",
+        description="RandomForestClassifier treinado no dataset Pima Indians Diabetes",
+        type=AssetTypes.MLFLOW_MODEL,
+        tags={
+            "framework": "scikit-learn",
+            "algorithm": "RandomForestClassifier",
+            "experiment": "exp-sdk-diabetes",
+            "job_name": returned_job.name,
+            "accuracy": str(round(accuracy, 4)),
+            "roc_auc": str(round(roc_auc, 4)),
+        },
+    )
+
+    registered_model = ml_client.models.create_or_update(model)
+
+    print(f"\nModelo registrado com sucesso!")
+    print(f"  Nome    : {registered_model.name}")
+    print(f"  Versão  : {registered_model.version}")
+    print(f"  AUC ROC : {roc_auc:.4f}")
+    print(f"  Acurácia: {accuracy:.4f}")
