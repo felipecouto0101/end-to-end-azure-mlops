@@ -10,3 +10,4 @@ dependencies:
       - numpy
       - mlflow
       - azureml-mlflow
+      - joblib

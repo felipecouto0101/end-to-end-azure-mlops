@@ -159,10 +159,10 @@ if __name__ == "__main__":
 
     # 8. Registrar o modelo
     model = Model(
-        path=f"azureml://jobs/{returned_job.name}/outputs/artifacts/paths/model/",
+        path=f"azureml://jobs/{returned_job.name}/outputs/metrics_dir/",
         name="diabetes-rf-model",
         description="RandomForestClassifier treinado no dataset Pima Indians Diabetes",
-        type=AssetTypes.MLFLOW_MODEL,
+        type=AssetTypes.CUSTOM_MODEL,
         tags={
             "framework": "scikit-learn",
             "algorithm": "RandomForestClassifier",

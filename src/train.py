@@ -78,6 +78,12 @@ def main():
     mlflow.log_metric("accuracy", metrics["accuracy"])
     mlflow.log_metric("roc_auc", metrics["roc_auc"])
 
+    # Guardar modelo explicitamente no output_dir
+    import joblib
+    model_path = os.path.join(args.output_dir, "model.pkl")
+    joblib.dump(model, model_path)
+    print(f"Modelo guardado em: {model_path}")
+
     # Gravar métricas em ficheiro JSON para leitura fiável pelo run_pipeline.py
     os.makedirs(args.output_dir, exist_ok=True)
     metrics_path = os.path.join(args.output_dir, "metrics.json")
